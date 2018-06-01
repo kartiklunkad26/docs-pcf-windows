@@ -1,0 +1,167 @@
+---
+title: Manual Steps to build vSphere 1709 Stemcell
+owner: Windows
+---
+
+These instructions describe how to build a BOSH stemcell based on Windows Server 2016 (1709) for VMWare-based IaaSes: vSphere, VMWare Workstation, or VMWare Fusion. 
+
+<p class="note warning"><strong>WARNING</strong>: Pivotal only supports Windows Server version 1709. [This page](https://docs.microsoft.com/en-us/windows-server/get-started/get-started-with-1709) can help describe the difference. Often in this guide you will see options referring to Windows Server 2016. This is typically because some of the software in this guide doesn't yet make a distinction, so for the purposes of this guide, 1709 can use settings labeled 2016.</p>
+
+## <a id='prereq'></a> Pre-Requisites
+
+## <a id='basevm'></a> Step 1: Create base VM for stemcell
+
+These are instructions for installing windows from a Windows installation disk ISO (either a volume licensed copy or a retail copy from MSDN). We recommend maintaining a separate, updated Windows VM based on this ISO to serve as the basis for the installation steps below. This way, you may apply Windows Updates and create new stemcells without having to reinstall all updates from scratch.
+
+1. Upload the Windows ISO to your datastore.
+  - Click "Storage" in the front vCenter menu.
+  - Choose a datastore and click on (or create) the directory where you want the ISO.
+  - Click "Upload a file to datastore" (harddisk icon with green plus), and upload ISO.
+
+
+There are two settings in the **Pivotal Application Service** tile that affect the Windows cells installed by the **PAS for Windows** tile. Configure these settings as desired:
+
+* In the **Networking** section, if you select the **Disable SSL certificate verification for this environment** checkbox, SSL certificate verification is disabled for Windows cells.
+* In the **System Logging** section, if you configure an external syslog aggregator, logs are drained from Windows cells as well as non-Windows cells.
+
+##<a id='install'></a> Step 2: Install the Tile
+
+1. Download the **Pivotal Application Service for Windows** product file from the product page of [Pivotal Network](https://network.pivotal.io/products/pas-windows).
+
+1. From the same [Pivotal Network](https://network.pivotal.io/products/pas-windows) page, download the **PAS for Windows File System Injector** tool for your workstation OS, Windows, Linux, or Mac. The Injector tool is an executable binary `winfs-injector` that adds the Windows Server container base image into the product file. This step requires internet access and can take up to 20 minutes. Note that you will need the `git` and `tar` (BSD) executables on your `%PATH%` in order in order to run the `winfs-injector`. Note, to use the injector on a Windows machine, `winfs-injector.exe`, the included utility, `tar.exe`, must be copied to a folder in your `%PATH%`. For example, `C:\Windows`.
+
+1. Run `winfs-injector` with the following options, replacing `PAS-WINDOWS-DOWNLOADED.pivotal` with the path to the downloaded **PAS for Windows** product file and `PAS-WINDOWS-INJECTED.pivotal` with a desired output path for the importable product file:
+    <pre class="terminal">
+    $ winfs-injector --input-tile PAS-WINDOWS-DOWNLOADED.pivotal \
+    --output-tile PAS-WINDOWS-INJECTED.pivotal
+    </pre>
+  For troubleshooting the `winfs-injector`, see [PAS for Windows File System Injector Troubleshooting](./troubleshooting.html#winfs-injector-issues).
+
+1. Navigate to the Ops Manager Installation Dashboard and click **Import a Product**.
+
+1. Select the importable `PAS-WINDOWS-INJECTED.pivotal` file on your workstation. **PAS for Windows** appears in the product list under **Import a Product**.
+
+1. Click **+** under the **PAS for Windows** product listing to add it to your staging area.
+
+##<a id='config'></a> Step 3: Configure the Tile
+
+1. Click the newly added **PAS for Windows** tile.
+
+    <%= image_tag('pcf-windows-tile-orange.png') %>
+
+1. Click **Assign AZs and Networks** or **Assign Networks**. The name of the section varies depending on your IaaS.
+
+1. Assign your AZs and networks and click **Save**.
+
+1. Click **VM Options**.
+
+    <%= image_tag('vm-options.png') %>
+
+1. Specify how you would like to manage the password for the user called "Administrator" for your Windows VMs.
+  * The default option is to **Use the Windows default password**, which randomizes the password for this user and the password is not retrievable by an operator.
+  * **Set the password** will set the *same* password for the user called "Administrator" for every Windows cell; this can be used to access any Windows cell (e.g. RDP sessions).
+
+1. (Optional) Select the **BETA: Enable BOSH-native SSH support on all VMs** checkbox to start the Microsoft beta port of the OpenSSH daemon on port 22 on all VMs. Users will be able to SSH onto Windows VMs with the `bosh ssh` command, and enter a CMD terminal as an administrator user. They can then run `powershell.exe` to start a PowerShell session.
+
+    <p class="note"><strong>Note</strong>: This feature is beta and not considered production-ready.</p>
+
+1. (Optional) If you want all VMs to support connection through Remote Desktop Protocol (RDP), click **Enable Remote Desktop Protocol**.
+
+1. (Optional) If you want to configure a Key Management Service (KMS) that your volume-licensed Windows cell can register with, perform the following steps:
+    1. Click **Enable**
+    2. For the **Host** field, enter the KMS hostname.
+    3. For the **Port** field, enter the port number. The default port number is `1688`.
+
+    ![The enable KMS text fields: host and port](enable-kms.png)
+
+1. (Optional) To deploy your PAS for Windows application workloads to an isolation segment, click **Application Containers** and perform the steps in the [Assign a Tile to an Isolation Segment](./isolation.html#assign-isolation) section below.
+
+1. (Optional) To configure Windows cells to send Windows Event logs to an external syslog server, click **System Logging** and perform the steps in the [Send Cell Logs to a Syslog Server](./troubleshooting.html#syslog) section.
+
+1. Click **Errands**. Pivotal recommends that you set the **Install HWC Buildpack Errand** to **On**. This ensures that you receive the most up-to-date HWC Buildpack.
+
+    <%= image_tag('errands-hwc.png') %>
+
+1. Click **Save**.
+
+
+##<a id='resources'></a> Step 4: Configure Tile Resources
+
+<p class='note'><strong>Note</strong>: Root disk sizing has been disabled and the default disk size for Windows cells has been increased. Future releases will provide ephemeral disk support to allow you to configure the size of your Windows cell.</p>
+
+The size of the root disk of a stemcell determines the minimum root disk size of any Windows VM that the BOSH Director can create from that stemcell. The relationship between the disk size of the stemcell and the root disk size of the Windows cells depends on your IaaS, as shown in the table below.
+
+<table id='disk-sizes' border="1" class="nice" >
+  <tr>
+    <th>IaaS</th>
+    <th>Windows Stemcell 1200.17+ disk size</th>
+    <th>Windows Stemcell 1709.5+ disk size</th>
+  </tr>
+  <tr>
+    <th>Azure</th>
+    <td>127 GB</td>
+    <td>30 GB</td>
+  </tr>
+  <tr>
+    <th>AWS</th>
+    <td>128 GB</td>
+    <td>128 GB</td>
+  </tr>
+  <tr>
+    <th>GCP</th>
+    <td>100 GB</td>
+    <td>100 GB</td>
+  </tr>
+  <tr>
+    <th>vSphere</th>
+    <td>Recommended 128 GB+<sup>*</sup></td>
+    <td>Recommended 128 GB+<sup>*</sup></td>
+  </tr>
+</table>
+
+Because you create your own stemcell on vSphere, you can control its root disk size. See [Creating a vSphere Stemcell by Hand](https://github.com/cloudfoundry-incubator/bosh-windows-stemcell-builder/wiki/Creating-a-vSphere-Stemcell-by-Hand) for more information.
+
+If you're using a Stemcell version before 1200.17 or before 1709.5, please refer to [Using Windows Stemcells](https://docs.pivotal.io/pivotalcf/2-1/windows/about-windows-stemcells.html) in the PAS for Windows 2012R2 documentation.
+
+### Select Diego Cell disk sizes
+
+When you deploy or upgrade PAS for Windows, configure the resources of the BOSH Director and PAS for Windows as follows:
+
+1. On the Ops Manager Installation Dashboard, select **Pivotal Application Service for Windows**.
+
+1. In the **Settings** tab, select **Resource Config**.
+
+1. In the **VM Type** field, ensure that **Windows Diego Cell** has a minimum disk size according to the table above and your IaaS.
+
+1. Click **Save**.
+
+### Select Master Compilation VM disk size
+
+1. On the Ops Manager Installation Dashboard, select the BOSH Director tile (usually the first tile).
+
+1. In the **Settings** tab, select **Resource Config**.
+
+1. In the **VM Type** field, ensure that the Ops Manager compilation VM has a minimum disk size according to the table above and your IaaS.
+
+	<%= image_tag('ops-man-resources.png') %>
+
+1. Click **Save**.
+
+
+##<a id='stemcells'></a> Step 5: Upload the Stemcell
+
+1. Go to **Stemcell Library**.
+
+1. Retrieve the stemcell that you downloaded or created in [Downloading or Creating a Windows Stemcell](./stemcells.html).
+
+1. Follow the steps in [Importing and Managing Stemcells](http://docs-pcf-staging.cfapps.io/pivotalcf/2-1/opsguide/managing-stemcells.html) to upload the Windows stemcell to **Pivotal Application Service for Windows.**
+
+
+##<a id='deploy'></a> Step 6: Deploy the Tile
+
+1. Return to the Ops Manager Installation Dashboard and click **Apply Changes** to install the PAS for Windows tile.
+
+
+##<a id='copy'></a> Step 7: (Optional) Create More Tiles
+
+If you want to run Windows cells in multiple isolation segments, you must create and configure additiona
